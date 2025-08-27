@@ -13,9 +13,12 @@ async function bootstrap() {
     transform: true,
   }));
   
+  // TEMPORARY FIX: Allow all origins (REMOVE AFTER TESTING)
   app.enableCors({
-    origin: process.env.CLIENT_URL || '*',
+    origin: true, // Allow all origins temporarily
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
   });
 
   const config = app.get(ConfigService);
