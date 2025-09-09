@@ -51,19 +51,52 @@ export class CommentService {
       authorName, // Add username for display
     };
 
-    // If reply, notify parent author only
+    // Handle notifications and real-time events
     try {
       if (saved.parentId) {
+        // This is a reply - notify parent author
         const parent = await this.commentModel.findById(saved.parentId).lean();
         if (parent && parent.authorId !== userId) {
-          // notify parent author (emit & optional persistence elsewhere)
+          // Create persistent notification for reply
+          if (this.notificationService) {
+            const replyNotification = await this.notificationService.create({
+              toUser: parent.authorId as any,
+              fromUser: userId as any,
+              type: 'reply',
+              commentId: saved._id as any,
+              postId: saved.postId,
+            });
+            // Emit real-time notification to parent author
+            this.gateway.emitToUser(parent.authorId, 'notification', replyNotification);
+          }
+          // Also emit the reply event for UI updates
           this.gateway.emitToUser(parent.authorId, 'replyAdded', { ...payload, replyTo: parent._id });
         }
+      } else {
+        // This is a new top-level comment - broadcast to all viewers
+        console.log('Processing new top-level comment for postId:', saved.postId, 'by user:', userId);
+        
+        // Broadcast notification to all users in the post room (no database storage needed for general comments)
+        // This ensures immediate notification delivery to all active viewers
+        try {
+          console.log('Broadcasting newComment notification to post room');
+          this.gateway.server.to(`post:${saved.postId}`).emit('newCommentNotification', {
+            type: 'comment',
+            message: `${authorName || 'Someone'} posted a new comment`,
+            postId: saved.postId,
+            commentId: saved._id,
+            authorId: userId,
+            authorName: authorName
+          });
+        } catch (broadcastErr) {
+          console.error('Failed to broadcast new comment notification:', broadcastErr);
+        }
       }
+      
       // Emit to post room for all viewers (so threads update)
       this.gateway.emitToPost(saved.postId, 'commentAdded', payload);
     } catch (err) {
-      console.error('Failed to emit WS event', err);
+      console.error('Failed to emit WS event or create notifications', err);
     }
 
     return saved;
